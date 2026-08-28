@@ -3,8 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sonnenstand & Zeiten Rechner</title>
+  <title>Sonnenstand, Zeiten & Jahresverlauf</title>
+  <!-- Bibliotheken: SunCalc für Astronomie, Chart.js für das Diagramm -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.9.0/suncalc.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
       --bg: #0f172a;
@@ -27,7 +29,7 @@
     }
     .container {
       width: 100%;
-      max-width: 650px;
+      max-width: 800px;
       display: flex;
       flex-direction: column;
       gap: 1.25rem;
@@ -40,7 +42,7 @@
       box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
     }
     h1 { font-size: 1.4rem; color: var(--accent); margin-bottom: 0.25rem; }
-    h2 { font-size: 1.05rem; margin-bottom: 0.75rem; color: var(--text); display: flex; align-items: center; gap: 0.5rem; }
+    h2 { font-size: 1.05rem; margin-bottom: 0.75rem; color: var(--text); }
     p.sub { color: var(--text-dim); font-size: 0.85rem; margin-bottom: 1rem; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
     .input-group { display: flex; flex-direction: column; gap: 0.3rem; }
@@ -92,15 +94,21 @@
     .stat-box .val.sunset { color: var(--sunset-color); }
     .stat-box .val.live { color: #facc15; }
     .stat-box .label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; }
+    .chart-wrapper {
+      position: relative;
+      height: 320px;
+      width: 100%;
+      margin-top: 0.5rem;
+    }
   </style>
 </head>
 <body>
 
 <div class="container">
-  <!-- Eingabebereich -->
+  <!-- Steuerung & Standort -->
   <div class="card">
-    <h1>Sonnenstand & Zeiten</h1>
-    <p class="sub">Berechnung für Sonnenaufgang, Sonnenuntergang und Winkel</p>
+    <h1>Sonnenstand & Jahreskurve</h1>
+    <p class="sub">Tagesgenaue Zeiten und 12-Monats-Verlauf (-3M bis +9M)</p>
 
     <div class="grid">
       <div class="input-group">
@@ -114,17 +122,17 @@
     </div>
 
     <div class="input-group" style="margin-top: 0.75rem;">
-      <label for="calc-date">Datum</label>
+      <label for="calc-date">Referenzdatum</label>
       <input type="date" id="calc-date">
     </div>
 
     <div class="grid" style="margin-top: 0.75rem;">
       <button class="btn-secondary" onclick="getLocation()">📍 Aktueller Standort</button>
-      <button onclick="calculate()">Berechnen</button>
+      <button onclick="calculateAll()">Berechnen & Aktualisieren</button>
     </div>
   </div>
 
-  <!-- Sonnenaufgang -->
+  <!-- Tageswerte -->
   <div class="card">
     <h2>🌅 Sonnenaufgang</h2>
     <div class="results-grid">
@@ -143,7 +151,6 @@
     </div>
   </div>
 
-  <!-- Sonnenuntergang -->
   <div class="card">
     <h2>🌇 Sonnenuntergang</h2>
     <div class="results-grid">
@@ -162,7 +169,6 @@
     </div>
   </div>
 
-  <!-- Tagesübersicht & Live-Status -->
   <div class="card">
     <h2>⏱️ Tageslänge & Live-Position</h2>
     <div class="results-grid">
@@ -180,9 +186,19 @@
       </div>
     </div>
   </div>
+
+  <!-- 12-Monats-Grafik -->
+  <div class="card">
+    <h2>📈 Jahresverlauf (-3 Monate bis +9 Monate)</h2>
+    <p class="sub">Y-Achse: Uhrzeit (Lokalzeit inkl. Sommer-/Winterzeitwechsel)</p>
+    <div class="chart-wrapper">
+      <canvas id="sunChart"></canvas>
+    </div>
+  </div>
 </div>
 
 <script>
+  let sunChartInstance = null;
   const dateInput = document.getElementById('calc-date');
   dateInput.value = new Date().toISOString().split('T')[0];
 
@@ -191,57 +207,165 @@
   }
 
   function getDirectionText(deg) {
-    const directions = ['N', 'NNO', 'NO', 'ONO', 'O', 'OSO', 'SO', 'SSO', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
-    const idx = Math.round(deg / 22.5) % 16;
-    return directions[idx];
+    const dirs = ['N', 'NNO', 'NO', 'ONO', 'O', 'OSO', 'SO', 'SSO', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+    return dirs[Math.round(deg / 22.5) % 16];
   }
 
   function formatTime(date) {
-    if (!date || isNaN(date.getTime())) return "Nie/Polar";
+    if (!date || isNaN(date.getTime())) return "--:--";
     return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   }
 
-  function calculate() {
-    const lat = parseFloat(document.getElementById('lat').value);
-    const lng = parseFloat(document.getElementById('lng').value);
-    const selectedDate = new Date(document.getElementById('calc-date').value + 'T12:00:00');
+  function decimalHoursToTimeStr(dec) {
+    const h = Math.floor(dec);
+    const m = Math.round((dec - h) * 60);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
 
-    // 1. Sonnenzeiten abrufen
+  function calculateDaily(lat, lng, selectedDate) {
     const times = SunCalc.getTimes(selectedDate, lat, lng);
     document.getElementById('sunrise-time').innerText = formatTime(times.sunrise);
     document.getElementById('sunset-time').innerText = formatTime(times.sunset);
 
-    // 2. Sonnenaufgang-Winkel berechnen
     if (times.sunrise && !isNaN(times.sunrise.getTime())) {
-      const sunrisePos = SunCalc.getPosition(times.sunrise, lat, lng);
-      let sunriseAzimuthDeg = (radToDeg(sunrisePos.azimuth) + 180) % 360;
-      document.getElementById('sunrise-azimuth').innerText = `${sunriseAzimuthDeg.toFixed(1)}°`;
-      document.getElementById('sunrise-direction').innerText = getDirectionText(sunriseAzimuthDeg);
+      const pos = SunCalc.getPosition(times.sunrise, lat, lng);
+      const az = (radToDeg(pos.azimuth) + 180) % 360;
+      document.getElementById('sunrise-azimuth').innerText = `${az.toFixed(1)}°`;
+      document.getElementById('sunrise-direction').innerText = getDirectionText(az);
     }
 
-    // 3. Sonnenuntergang-Winkel berechnen
     if (times.sunset && !isNaN(times.sunset.getTime())) {
-      const sunsetPos = SunCalc.getPosition(times.sunset, lat, lng);
-      let sunsetAzimuthDeg = (radToDeg(sunsetPos.azimuth) + 180) % 360;
-      document.getElementById('sunset-azimuth').innerText = `${sunsetAzimuthDeg.toFixed(1)}°`;
-      document.getElementById('sunset-direction').innerText = getDirectionText(sunsetAzimuthDeg);
+      const pos = SunCalc.getPosition(times.sunset, lat, lng);
+      const az = (radToDeg(pos.azimuth) + 180) % 360;
+      document.getElementById('sunset-azimuth').innerText = `${az.toFixed(1)}°`;
+      document.getElementById('sunset-direction').innerText = getDirectionText(az);
     }
 
-    // 4. Tageslänge berechnen
     if (times.sunrise && times.sunset) {
       const diffMs = times.sunset - times.sunrise;
-      const hours = Math.floor(diffMs / 3600000);
-      const mins = Math.floor((diffMs % 3600000) / 60000);
-      document.getElementById('day-length').innerText = `${hours}h ${mins}m`;
+      const h = Math.floor(diffMs / 3600000);
+      const m = Math.floor((diffMs % 3600000) / 60000);
+      document.getElementById('day-length').innerText = `${h}h ${m}m`;
     }
 
-    // 5. Live-Winkel jetzt
     const livePos = SunCalc.getPosition(new Date(), lat, lng);
-    let liveAzimuthDeg = (radToDeg(livePos.azimuth) + 180) % 360;
-    let liveAltDeg = radToDeg(livePos.altitude);
+    document.getElementById('live-azimuth').innerText = `${((radToDeg(livePos.azimuth) + 180) % 360).toFixed(1)}°`;
+    document.getElementById('live-altitude').innerText = `${radToDeg(livePos.altitude).toFixed(1)}°`;
+  }
 
-    document.getElementById('live-azimuth').innerText = `${liveAzimuthDeg.toFixed(1)}°`;
-    document.getElementById('live-altitude').innerText = `${liveAltDeg.toFixed(1)}°`;
+  function updateChart(lat, lng, refDate) {
+    const labels = [];
+    const sunriseData = [];
+    const sunsetData = [];
+
+    // Start: Vor 3 Monaten (~91 Tage), Ende: In 9 Monaten (~274 Tage)
+    const startDate = new Date(refDate);
+    startDate.setDate(startDate.getDate() - 91);
+
+    const endDate = new Date(refDate);
+    endDate.setDate(endDate.getDate() + 274);
+
+    let curr = new Date(startDate);
+    while (curr <= endDate) {
+      const times = SunCalc.getTimes(curr, lat, lng);
+      const dateLabel = curr.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+
+      labels.push(dateLabel);
+
+      if (times.sunrise && !isNaN(times.sunrise.getTime())) {
+        sunriseData.push(times.sunrise.getHours() + times.sunrise.getMinutes() / 60 + times.sunrise.getSeconds() / 3600);
+      } else {
+        sunriseData.push(null);
+      }
+
+      if (times.sunset && !isNaN(times.sunset.getTime())) {
+        sunsetData.push(times.sunset.getHours() + times.sunset.getMinutes() / 60 + times.sunset.getSeconds() / 3600);
+      } else {
+        sunsetData.push(null);
+      }
+
+      // Schrittweite: 3 Tage für glatten Verlauf bei optimaler Performance
+      curr.setDate(curr.getDate() + 3);
+    }
+
+    if (sunChartInstance) {
+      sunChartInstance.destroy();
+    }
+
+    const ctx = document.getElementById('sunChart').getContext('2d');
+    sunChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Sonnenaufgang',
+            data: sunriseData,
+            borderColor: '#38bdf8',
+            backgroundColor: 'rgba(56, 189, 248, 0.1)',
+            tension: 0.3,
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHitRadius: 8
+          },
+          {
+            label: 'Sonnenuntergang',
+            data: sunsetData,
+            borderColor: '#fb7185',
+            backgroundColor: 'rgba(251, 113, 133, 0.1)',
+            tension: 0.3,
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHitRadius: 8
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
+        plugins: {
+          legend: {
+            labels: { color: '#94a3b8', font: { size: 12 } }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                return `${context.dataset.label}: ${decimalHoursToTimeStr(context.parsed.y)} Uhr`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: '#334155' },
+            ticks: { color: '#94a3b8', maxTicksLimit: 12 }
+          },
+          y: {
+            min: 3,
+            max: 23,
+            grid: { color: '#334155' },
+            ticks: {
+              color: '#94a3b8',
+              stepSize: 2,
+              callback: value => `${String(value).padStart(2, '0')}:00`
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function calculateAll() {
+    const lat = parseFloat(document.getElementById('lat').value);
+    const lng = parseFloat(document.getElementById('lng').value);
+    const selectedDate = new Date(document.getElementById('calc-date').value + 'T12:00:00');
+
+    calculateDaily(lat, lng, selectedDate);
+    updateChart(lat, lng, selectedDate);
   }
 
   function getLocation() {
@@ -249,13 +373,18 @@
       navigator.geolocation.getCurrentPosition(pos => {
         document.getElementById('lat').value = pos.coords.latitude.toFixed(4);
         document.getElementById('lng').value = pos.coords.longitude.toFixed(4);
-        calculate();
+        calculateAll();
       }, () => alert("Standortermittlung fehlgeschlagen oder blockiert."));
     }
   }
 
-  calculate();
-  setInterval(calculate, 10000);
+  calculateAll();
+  setInterval(() => {
+    const lat = parseFloat(document.getElementById('lat').value);
+    const lng = parseFloat(document.getElementById('lng').value);
+    const selectedDate = new Date(document.getElementById('calc-date').value + 'T12:00:00');
+    calculateDaily(lat, lng, selectedDate);
+  }, 10000);
 </script>
 
 </body>
