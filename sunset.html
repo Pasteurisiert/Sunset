@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sonnenstand & Untergang Rechner</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.9.0/suncalc.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --accent: #f59e0b;
+      --text: #f8fafc;
+      --text-dim: #94a3b8;
+      --border: #334155;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      padding: 2rem 1rem;
+      min-height: 100vh;
+    }
+    .container {
+      width: 100%;
+      max-width: 650px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+    }
+    h1 { font-size: 1.5rem; margin-bottom: 0.25rem; color: var(--accent); }
+    p.sub { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 1.5rem; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .input-group { display: flex; flex-direction: column; gap: 0.4rem; }
+    label { font-size: 0.85rem; color: var(--text-dim); }
+    input {
+      background: #0b1120;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.6rem 0.8rem;
+      border-radius: 6px;
+      font-size: 0.95rem;
+    }
+    input:focus { outline: 1px solid var(--accent); }
+    button {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      padding: 0.7rem;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-top: 0.5rem;
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.9; }
+    .btn-secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .results-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .stat-box {
+      background: #0b1120;
+      padding: 1rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      text-align: center;
+    }
+    .stat-box .val {
+      font-size: 1.3rem;
+      font-weight: bold;
+      color: #38bdf8;
+      margin-top: 0.3rem;
+    }
+    .stat-box .val.sunset { color: #fb7185; }
+    .stat-box .val.angle { color: #facc15; }
+    .stat-box .label { font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="card">
+    <h1>Sonnenstand & Zeiten</h1>
+    <p class="sub">Präzise Berechnung für Fotografie und Zeitraffer-Planung</p>
+
+    <div class="grid">
+      <div class="input-group">
+        <label for="lat">Breitengrad (Latitude)</label>
+        <input type="number" id="lat" step="0.0001" value="47.4700">
+      </div>
+      <div class="input-group">
+        <label for="lng">Längengrad (Longitude)</label>
+        <input type="number" id="lng" step="0.0001" value="8.3000">
+      </div>
+    </div>
+
+    <div class="input-group" style="margin-top: 1rem;">
+      <label for="calc-date">Datum</label>
+      <input type="date" id="calc-date">
+    </div>
+
+    <div class="grid" style="margin-top: 1rem;">
+      <button class="btn-secondary" onclick="getLocation()">📍 Aktueller Standort</button>
+      <button onclick="calculate()">Berechnen</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="font-size: 1.2rem; margin-bottom: 0.5rem;">Ergebnisse für gewählten Tag</h2>
+    <div class="results-grid">
+      <div class="stat-box">
+        <div class="label">Sonnenaufgang</div>
+        <div class="val" id="sunrise-time">--:--:--</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">Sonnenuntergang</div>
+        <div class="val sunset" id="sunset-time">--:--:--</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">Tageslänge</div>
+        <div class="val" id="day-length">-- Std -- Min</div>
+      </div>
+    </div>
+
+    <h2 style="font-size: 1.2rem; margin-top: 1.5rem; margin-bottom: 0.5rem;">Winkel beim Untergang</h2>
+    <div class="results-grid">
+      <div class="stat-box">
+        <div class="label">Azimut (Kompass)</div>
+        <div class="val angle" id="sunset-azimuth">--°</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">Himmelsrichtung</div>
+        <div class="val" id="sunset-direction">--</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">Höhenwinkel</div>
+        <div class="val" id="sunset-altitude">-0.83°</div>
+      </div>
+    </div>
+
+    <h2 style="font-size: 1.2rem; margin-top: 1.5rem; margin-bottom: 0.5rem;">Aktueller Live-Winkel</h2>
+    <div class="results-grid">
+      <div class="stat-box">
+        <div class="label">Aktueller Azimut</div>
+        <div class="val angle" id="live-azimuth">--°</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">Aktuelle Höhe</div>
+        <div class="val angle" id="live-altitude">--°</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Initiales Datum auf heute setzen
+  const dateInput = document.getElementById('calc-date');
+  dateInput.value = new Date().toISOString().split('T')[0];
+
+  function radToDeg(rad) {
+    return rad * (180 / Math.PI);
+  }
+
+  function getDirectionText(deg) {
+    const directions = ['N', 'NNO', 'NO', 'ONO', 'O', 'OSO', 'SO', 'SSO', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+    const idx = Math.round(deg / 22.5) % 16;
+    return directions[idx];
+  }
+
+  function formatTime(date) {
+    if (!date || isNaN(date.getTime())) return "Nie/Polar";
+    return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  function calculate() {
+    const lat = parseFloat(document.getElementById('lat').value);
+    const lng = parseFloat(document.getElementById('lng').value);
+    const selectedDate = new Date(document.getElementById('calc-date').value + 'T12:00:00');
+
+    // 1. Sonnenzeiten berechnen
+    const times = SunCalc.getTimes(selectedDate, lat, lng);
+    document.getElementById('sunrise-time').innerText = formatTime(times.sunrise);
+    document.getElementById('sunset-time').innerText = formatTime(times.sunset);
+
+    if (times.sunrise && times.sunset) {
+      const diffMs = times.sunset - times.sunrise;
+      const hours = Math.floor(diffMs / 3600000);
+      const mins = Math.floor((diffMs % 3600000) / 60000);
+      document.getElementById('day-length').innerText = `${hours}h ${mins}m`;
+
+      // 2. Sonnenwinkel zum exakten Untergangszeitpunkt berechnen
+      const sunsetPos = SunCalc.getPosition(times.sunset, lat, lng);
+      // SunCalc misst Azimut von Süd (0) nach West/Ost in Radiant (-PI bis +PI). 
+      // Umrechnung auf Standard-Kompass (0° Nord, 90° Ost, 180° Süd, 270° West):
+      let azimuthDeg = (radToDeg(sunsetPos.azimuth) + 180) % 360;
+      let altitudeDeg = radToDeg(sunsetPos.altitude);
+
+      document.getElementById('sunset-azimuth').innerText = `${azimuthDeg.toFixed(2)}°`;
+      document.getElementById('sunset-direction').innerText = getDirectionText(azimuthDeg);
+      document.getElementById('sunset-altitude').innerText = `${altitudeDeg.toFixed(2)}°`;
+    }
+
+    // 3. Live-Sonnenposition jetzt
+    const livePos = SunCalc.getPosition(new Date(), lat, lng);
+    let liveAzimuthDeg = (radToDeg(livePos.azimuth) + 180) % 360;
+    let liveAltDeg = radToDeg(livePos.altitude);
+
+    document.getElementById('live-azimuth').innerText = `${liveAzimuthDeg.toFixed(2)}°`;
+    document.getElementById('live-altitude').innerText = `${liveAltDeg.toFixed(2)}°`;
+  }
+
+  function getLocation() {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(pos => {
+        document.getElementById('lat').value = pos.coords.latitude.toFixed(4);
+        document.getElementById('lng').value = pos.coords.longitude.toFixed(4);
+        calculate();
+      }, () => alert("Standortermittlung fehlgeschlagen oder blockiert."));
+    }
+  }
+
+  // Initiale Berechnung beim Laden
+  calculate();
+  // Live-Werte alle 10 Sekunden aktualisieren
+  setInterval(calculate, 10000);
+</script>
+
+</body>
+</html>
